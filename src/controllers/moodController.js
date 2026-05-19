@@ -1,4 +1,5 @@
 const Mood = require('../models/Mood');
+const Chat = require('../models/Chat');
 
 const moodScores = {
   'Happy': 2,
@@ -101,6 +102,13 @@ const getWeeklyInsights = async (req, res) => {
       createdAt: { $gte: sevenDaysAgo }
     }).sort({ createdAt: 1 });
 
+    // Fetch user chats from the last 7 days
+    const recentChats = await Chat.find({
+      user: req.user._id,
+      sender: 'user',
+      createdAt: { $gte: sevenDaysAgo }
+    }).sort({ createdAt: 1 });
+
     // 1. Process Graph Data (Last 7 Days)
     // Create a map for the last 7 days to group scores
     const daysMap = {};
@@ -114,10 +122,29 @@ const getWeeklyInsights = async (req, res) => {
       daysMap[dateString] = { day: dayNames[d.getDay()], totalScore: 0, count: 0 };
     }
 
+    // Add mood scores to map
     recentMoods.forEach(entry => {
       const dateString = entry.createdAt.toISOString().split('T')[0];
       if (daysMap[dateString]) {
         daysMap[dateString].totalScore += entry.score;
+        daysMap[dateString].count += 1;
+      }
+    });
+
+    // Add chat sentiment scores to map
+    recentChats.forEach(chat => {
+      const dateString = chat.createdAt.toISOString().split('T')[0];
+      const lowerMsg = chat.message.toLowerCase();
+      let chatScore = null;
+      
+      if (lowerMsg.match(/\b(sad|stressed|overwhelmed|tired|anxious|bad|depressed|angry|hurt|exhausted|burnout)\b/)) {
+        chatScore = -2.5; // Negative sentiment
+      } else if (lowerMsg.match(/\b(happy|good|great|peace|calm|joy|excited|better|relax|awesome)\b/)) {
+        chatScore = 1.5; // Positive sentiment
+      }
+
+      if (chatScore !== null && daysMap[dateString]) {
+        daysMap[dateString].totalScore += chatScore;
         daysMap[dateString].count += 1;
       }
     });
@@ -140,10 +167,16 @@ const getWeeklyInsights = async (req, res) => {
     };
     let peakTime = "afternoon";
 
-    if (recentMoods.length > 0) {
-      // Calculate overall average score
-      const totalScore = recentMoods.reduce((acc, curr) => acc + curr.score, 0);
-      const avgScore = totalScore / recentMoods.length;
+    // Calculate overall average score combining both moods and chats
+    let totalCombinedScore = 0;
+    let totalCombinedCount = 0;
+    Object.values(daysMap).forEach(d => {
+      totalCombinedScore += d.totalScore;
+      totalCombinedCount += d.count;
+    });
+
+    if (totalCombinedCount > 0) {
+      const avgScore = totalCombinedScore / totalCombinedCount;
 
       // Mock logic matching the UI's 72% High Stress scenario
       if (avgScore <= 0) {
