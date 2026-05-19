@@ -6,7 +6,9 @@
  */
 
 const api = (function () {
-    const BASE_URL = 'http://127.0.0.1:5001/api';
+    const BASE_URL = window.location.origin.startsWith('http') 
+        ? `${window.location.origin}/api` 
+        : 'http://127.0.0.1:5001/api';
     let isMockMode = false;
 
     /**
